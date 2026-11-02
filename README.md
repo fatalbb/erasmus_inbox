@@ -2,7 +2,7 @@
 
 An AI agent that helps a university Erasmus office handle its inbox. It reads student emails, recognises each attached document, files it under a consistent name, keeps a spreadsheet of students up to date and answers common student questions from a short FAQ.
 
-Built with Google's [Agent Development Kit (ADK)](https://google.github.io/adk-docs/) and the Gemini model `gemini-flash-latest`.
+Built with Google's [Agent Development Kit (ADK)](https://google.github.io/adk-docs/) and the Gemini model `gemini-3.5-flash`.
 
 There are two ways to run it:
 - **Version 1:** process a folder of `.eml` files from the ADK web chat.

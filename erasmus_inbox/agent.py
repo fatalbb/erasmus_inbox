@@ -34,7 +34,7 @@ FAQ:
 
 root_agent = Agent(
     name="erasmus_inbox",
-    model="gemini-flash-latest",
+    model="gemini-3.5-flash",
     description="Files Erasmus student documents and answers common student questions.",
     instruction=INSTRUCTION + FAQ,
     tools=[list_emails, read_email, save_attachment, append_row, draft_reply],

@@ -92,7 +92,7 @@ To stop the watcher, press **Ctrl+C**.
 | `Error 403: access_denied` in the browser | Your account isn't a test user. Add it in Part B, step 5. |
 | `Gmail API has not been used in project ...` | The Gmail API isn't enabled. Do Part A, step 3. |
 | `invalid_grant` or `Token has been expired or revoked` | Delete `erasmus_inbox/token.json` and run the watcher again to sign in. With an **External** app in **Testing**, Google makes you sign in again every 7 days. |
-| `Problem, will retry in 30s: 503 UNAVAILABLE` | Gemini is overloaded. The watcher retries by itself, and the email stays unprocessed until it succeeds. If it keeps happening, change `model=` in `agent.py` to `gemini-3.5-flash`. |
+| `Problem, will retry in 30s: 503 UNAVAILABLE` | Gemini is overloaded. The watcher retries by itself, and the email stays unprocessed until it succeeds. If it keeps happening, try another model in `model=` in `agent.py`, such as `gemini-flash-lite-latest`. |
 | Nothing happens | Check that the email has the label **Erasmus** and not already **Erasmus/Processed**. |
 
 To remove the agent's access to your Gmail at any time, go to https://myaccount.google.com/permissions.

@@ -45,7 +45,7 @@ This project hands that routine work to an **AI agent**. The agent uses a langua
                            ▼
             ┌──────────────────────────────┐        ┌─────────────────────┐
             │  root_agent  (agent.py)      │ ◄────► │  Gemini API         │
-            │  instructions + FAQ + tools  │        │  gemini-flash-latest│
+            │  instructions + FAQ + tools  │        │  gemini-3.5-flash   │
             └──────────────┬───────────────┘        └─────────────────────┘
                            │ tool calls chosen by the model
                            ▼
@@ -68,7 +68,7 @@ Defines `root_agent`, the object ADK looks for when it loads the folder.
 | Field | Value | Purpose |
 |---|---|---|
 | `name` | `erasmus_inbox` | Name shown in the ADK menu |
-| `model` | `gemini-flash-latest` | Fast, low-cost Gemini model, available on the free tier |
+| `model` | `gemini-3.5-flash` | Fast, low-cost Gemini model, available on the free tier. It replaced `gemini-flash-latest`, which was often overloaded (`503`). |
 | `description` | one sentence | Summary of what the agent does, used when agents are combined |
 | `instruction` | `INSTRUCTION + FAQ` | The system prompt: the 5-step filing procedure, the FAQ rule and the contents of `faq.txt` |
 | `tools` | the four functions | What the agent is allowed to do |
