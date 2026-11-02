@@ -1,9 +1,9 @@
 # Version 2 setup: connect the agent to your Gmail
 
-Version 2 watches a Gmail label called **Erasmus**. Every 30 seconds it checks for new emails under that label, runs the same agent on each one and then:
+Version 2 watches a Gmail label called **Erasmus**. Every 5 seconds it checks for new emails under that label, runs the same agent on each one and then:
 
 - files the PDF attachments and updates `students.xlsx`, exactly like version 1;
-- writes **draft replies** to student questions in your Gmail **Drafts**. Nothing is ever sent: you read each draft and click Send yourself;
+- **replies automatically** to student questions, in the same conversation. It saves a **draft** instead when sending could be unsafe (auto-replies, mailing lists, your own emails, or a conversation you already answered). To get drafts only, set `AUTO_SEND = False` in `erasmus_inbox/gmail_client.py`;
 - adds the label **Erasmus/Processed**, so no email is handled twice.
 
 **Why OAuth2 and not an API key?** An API key only identifies a program; Google never lets it read someone's private mailbox. **OAuth2** is the "Sign in with Google → Allow" screen, where *you* give this program permission to use *your* Gmail. Your Gemini API key in `.env` stays as it is: it's still used for the AI part.
@@ -65,7 +65,7 @@ python watch_gmail.py
     The terminal then shows:
 
 ```
-Watching the Gmail label "Erasmus" every 30s. Ctrl+C to stop.
+Watching the Gmail label "Erasmus" every 5s. Ctrl+C to stop.
 ```
 
 A file `erasmus_inbox/token.json` is created, so you won't have to sign in again next time.
@@ -74,10 +74,10 @@ A file `erasmus_inbox/token.json` is created, so you won't have to sign in again
 
 12. From another email account, send your Gmail address an email with a PDF attached and a question, for example *"When will I get my Erasmus grant?"* (you can attach one of the PDFs from `examples/filed/`).
 13. In Gmail, put the label **Erasmus** on it, unless your filter already did.
-14. Within about 30 seconds, the watcher prints `New email -> gmail_<id>.eml` followed by the agent's summary. Then check:
+14. Within about 10 to 20 seconds, the watcher prints `New email -> gmail_<id>.eml` followed by the agent's summary. Then check:
     - `erasmus_inbox/filed/`: the renamed PDF;
     - `erasmus_inbox/students.xlsx`: the student's row;
-    - Gmail **Drafts**: a reply ready for you to check and send;
+    - the sender receives a reply, and it also appears in your Gmail **Sent** folder. If you emailed yourself, it waits in **Drafts** instead, because the agent never auto-replies to your own address;
     - the email now also has the label **Erasmus/Processed**.
 
 To stop the watcher, press **Ctrl+C**.
@@ -92,7 +92,7 @@ To stop the watcher, press **Ctrl+C**.
 | `Error 403: access_denied` in the browser | Your account isn't a test user. Add it in Part B, step 5. |
 | `Gmail API has not been used in project ...` | The Gmail API isn't enabled. Do Part A, step 3. |
 | `invalid_grant` or `Token has been expired or revoked` | Delete `erasmus_inbox/token.json` and run the watcher again to sign in. With an **External** app in **Testing**, Google makes you sign in again every 7 days. |
-| `Problem, will retry in 30s: 503 UNAVAILABLE` | Gemini is overloaded. The watcher retries by itself, and the email stays unprocessed until it succeeds. If it keeps happening, try another model in `model=` in `agent.py`, such as `gemini-flash-lite-latest`. |
+| `Problem, will retry in 5s: 503 UNAVAILABLE` | Gemini is overloaded. The watcher retries by itself, and the email stays unprocessed until it succeeds. If it keeps happening, try another model in `model=` in `agent.py`, such as `gemini-flash-lite-latest`. |
 | Nothing happens | Check that the email has the label **Erasmus** and not already **Erasmus/Processed**. |
 
 To remove the agent's access to your Gmail at any time, go to https://myaccount.google.com/permissions.

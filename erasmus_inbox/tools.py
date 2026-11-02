@@ -127,8 +127,9 @@ def append_row(surname: str, name: str, host_university: str, start_date: str,
     return {"status": action, "student": full_name}
 
 
-def draft_reply(email_filename: str, answer: str) -> dict:
-    """Saves a reply to a student's question as a draft for staff to check. It is never sent.
+def reply_to_student(email_filename: str, answer: str) -> dict:
+    """Replies to whoever sent the email. Gmail replies are sent automatically when that is safe,
+    otherwise they are saved in Gmail Drafts for staff to check.
 
     Args:
         email_filename: the .eml file the question came from.
@@ -139,8 +140,13 @@ def draft_reply(email_filename: str, answer: str) -> dict:
         from . import gmail_client  # imported here so version 1 works without Gmail set up
 
         msg_id = Path(filename).stem.removeprefix("gmail_")
-        draft_id = gmail_client.create_draft_reply(msg_id, _load(filename), answer)
-        return {"status": "drafted", "where": "Gmail Drafts", "draft_id": draft_id}
+        original = _load(filename)
+        blocker = gmail_client.auto_send_blocker(msg_id, original)
+        if not blocker:
+            gmail_client.send_reply(msg_id, original, answer)
+            return {"status": "sent", "to": original["Reply-To"] or original["From"]}
+        gmail_client.create_draft_reply(msg_id, original, answer)
+        return {"status": "drafted", "where": "Gmail Drafts", "reason": blocker}
     DRAFTS.mkdir(exist_ok=True)
     path = DRAFTS / f"{Path(filename).stem}_reply.txt"
     path.write_text(answer, encoding="utf-8")

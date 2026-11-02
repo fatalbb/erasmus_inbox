@@ -6,7 +6,7 @@ Built with Google's [Agent Development Kit (ADK)](https://google.github.io/adk-d
 
 There are two ways to run it:
 - **Version 1:** process a folder of `.eml` files from the ADK web chat.
-- **Version 2:** watch a live Gmail label and handle each new email automatically, including draft replies. See [Version 2](#version-2-live-gmail-watcher).
+- **Version 2:** watch a live Gmail label and handle each new email automatically, including replies to student questions. See [Version 2](#version-2-live-gmail-watcher).
 
 ## What it does
 
@@ -37,8 +37,8 @@ erasmus-hackathon/
 └── erasmus_inbox/         the agent (ADK loads this folder)
     ├── __init__.py        makes the folder a Python package
     ├── agent.py           agent definition: model, instructions, tools
-    ├── tools.py           list_emails, read_email, save_attachment, append_row, draft_reply
-    ├── gmail_client.py    version 2: Gmail sign-in, labels, downloads, drafts
+    ├── tools.py           list_emails, read_email, save_attachment, append_row, reply_to_student
+    ├── gmail_client.py    version 2: Gmail sign-in, labels, downloads, sending and drafts
     ├── faq.txt            the questions and answers the agent may use
     ├── make_samples.py    generates 8 fake test emails
     ├── .env               your Gemini API key (secret, never share)
@@ -113,14 +113,16 @@ To start again from a clean state, delete `erasmus_inbox/filed/` and `erasmus_in
 
 ## Version 2: live Gmail watcher
 
-`watch_gmail.py` signs in to your Gmail with **OAuth2** and checks the label **Erasmus** every 30 seconds. For each new email it:
+`watch_gmail.py` signs in to your Gmail with **OAuth2** and checks the label **Erasmus** every 5 seconds. A reply usually goes out **about 10 to 20 seconds** after an email gets the label. For each new email it:
 
 1. downloads it into `erasmus_inbox/inbox/` as `gmail_<id>.eml`;
 2. runs the same agent on it: it files the PDFs and updates `students.xlsx`;
-3. if the email asks a question, writes a **draft reply** in Gmail Drafts. Nothing is sent automatically, so staff check and send each reply;
-4. adds the label **Erasmus/Processed**, so the email is never handled twice. If anything fails, such as no internet or an overloaded Gemini, the email stays unprocessed and is retried 30 seconds later.
+3. if the email asks a question, **sends a reply** to the sender, in the same conversation, with the FAQ answer or "I'll pass this to staff". It saves the reply as a **draft** instead when sending could be unsafe: the email was sent by a machine (an auto-reply or mailing list), came from your own address, or the conversation already has a reply from you;
+4. adds the label **Erasmus/Processed**, so the email is never handled twice. If anything fails, such as no internet or an overloaded Gemini, the email stays unprocessed and is retried 5 seconds later.
 
-Gmail access uses OAuth2, because Google doesn't allow API keys to read a private mailbox. The Gemini API key in `.env` is still used for the AI. The app asks for one permission, `gmail.modify` (read, label and create drafts), and the code never sends or deletes email.
+Gmail access uses OAuth2, because Google doesn't allow API keys to read a private mailbox. The Gemini API key in `.env` is still used for the AI. The app asks for one permission, `gmail.modify` (read, label, draft and send). The code only ever replies to the sender of an email, and never deletes anything.
+
+**Prefer drafts only?** Set `AUTO_SEND = False` in `erasmus_inbox/gmail_client.py` and restart the watcher. Every reply then waits in Gmail Drafts for staff to check.
 
 **Setup (once, about 15 minutes):** follow [GMAIL_SETUP.md](GMAIL_SETUP.md) to create a Google Cloud OAuth client, save it as `erasmus_inbox/credentials.json` and create the Gmail label. Then:
 
@@ -130,7 +132,7 @@ python watch_gmail.py
 
 The first run opens your browser so you can click **Allow**. After that, the terminal shows each new email as it's processed. Press Ctrl+C to stop.
 
-Version 1 still works unchanged with `adk web`. There, `draft_reply` saves drafts as text files in `erasmus_inbox/drafts/` instead of Gmail.
+Version 1 still works unchanged with `adk web`. There, `reply_to_student` never sends: it saves replies as text files in `erasmus_inbox/drafts/`.
 
 ## Customising
 

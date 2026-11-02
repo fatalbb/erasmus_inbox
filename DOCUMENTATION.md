@@ -69,6 +69,7 @@ Defines `root_agent`, the object ADK looks for when it loads the folder.
 |---|---|---|
 | `name` | `erasmus_inbox` | Name shown in the ADK menu |
 | `model` | `gemini-3.5-flash` | Fast, low-cost Gemini model, available on the free tier. It replaced `gemini-flash-latest`, which was often overloaded (`503`). |
+| `generate_content_config` | `thinking_level="low"` | Less "thinking" before each answer, so replies are faster. The tasks are simple, so accuracy was unchanged in testing. |
 | `description` | one sentence | Summary of what the agent does, used when agents are combined |
 | `instruction` | `INSTRUCTION + FAQ` | The system prompt: the 5-step filing procedure, the FAQ rule and the contents of `faq.txt` |
 | `tools` | the four functions | What the agent is allowed to do |
@@ -137,16 +138,20 @@ Behaviour:
 - A `threading.Lock` stops two calls running at the same time from overwriting each other.
 - If Excel has the file open, it returns an error asking you to close it.
 
-#### `draft_reply(email_filename, answer) -> dict`
+#### `reply_to_student(email_filename, answer) -> dict`
 
 | Parameter | Description |
 |---|---|
 | `email_filename` | The `.eml` file the question came from |
 | `answer` | The full reply, from "Dear …," to "Kind regards, Erasmus Office" |
 
-- For Gmail emails (`gmail_<id>.eml`), it creates a reply in **Gmail Drafts**, in the same conversation, addressed to the sender, with `Re:` in the subject. It returns `{"status": "drafted", "where": "Gmail Drafts", "draft_id": ...}`.
-- For local test emails, it writes `drafts/<email>_reply.txt` instead, so version 1 works without Gmail.
-- It **never sends** anything: a person reviews every draft.
+- For Gmail emails (`gmail_<id>.eml`), it **sends** a reply to the sender, in the same conversation, with `Re:` in the subject, and returns `{"status": "sent", "to": ...}`.
+- It saves the reply in **Gmail Drafts** instead, returning `{"status": "drafted", "reason": ...}`, when:
+  - `AUTO_SEND = False` in `gmail_client.py`;
+  - the email was sent by a machine (`Auto-Submitted` header, or `Precedence: bulk/list/junk/auto_reply`). This prevents endless loops between two auto-replies;
+  - the email came from this mailbox's own address;
+  - the conversation already contains a reply from this mailbox. This prevents double replies when a failed run is retried.
+- For local test emails, it never sends: it writes `drafts/<email>_reply.txt`, so version 1 works without Gmail.
 
 #### Private helpers
 
@@ -227,7 +232,7 @@ The instruction tells the model to answer **only** from the FAQ and, when it isn
 | "Can I bring my cat to the student dorm?" | "I'll pass this to staff." |
 | "Do I need anything else before I leave?" | Could go either way: a partial FAQ answer, or a handover to staff |
 
-The agent drafts answers but **doesn't send emails**. A staff member stays in the loop.
+In version 1, answers only appear in the chat or in `drafts/`. In version 2, the agent sends them to the student automatically, unless one of the safety rules in `reply_to_student` applies or `AUTO_SEND` is turned off.
 
 ## 7. Safety and privacy design
 
@@ -238,7 +243,9 @@ The agent drafts answers but **doesn't send emails**. A staff member stays in th
 | Wrong document type or year format | `save_attachment` rejects values that don't match `DOC_TYPES` or `YYYY-YY` |
 | Two Excel writes at once | `threading.Lock` in `append_row` |
 | API key leak | The key lives only in `.env`, which `.gitignore` excludes from Git |
-| The agent emails a student something wrong | Version 2 only creates **drafts**. Sending is always a human action. |
+| The agent emails a student something wrong | Answers come only from the FAQ, otherwise "I'll pass this to staff". Every sent reply is visible in Gmail **Sent**. Set `AUTO_SEND = False` to review everything first. |
+| The agent emails someone else | Replies only ever go to the sender of the email being processed, never to an address taken from the email's text |
+| Auto-reply loops or double replies | No automatic reply to machine-sent mail, your own address, or a conversation that already has a reply from you |
 | The agent reads private mail | Version 2 reads only emails with the Gmail label `Erasmus` |
 | Gmail sign-in files leak | `credentials.json` and `token.json` are excluded by `.gitignore`; access can be revoked at myaccount.google.com/permissions |
 | Real personal data | All test data is invented; see the free-tier note below |
@@ -316,7 +323,7 @@ python -c "from erasmus_inbox import tools; print(tools.list_emails()); print(to
 ## 12. Ideas for next steps
 
 - **Other mailboxes:** version 2 supports Gmail. Outlook or Microsoft 365 would need a `graph_client.py` with the same functions, using Microsoft Graph.
-- **Instant delivery:** replace the 30-second polling with Gmail push notifications (`users.watch` with Google Cloud Pub/Sub).
+- **Instant delivery:** replace the 5-second polling with Gmail push notifications (`users.watch` with Google Cloud Pub/Sub).
 - **Scanned documents:** add OCR (for example Tesseract), or send the PDF directly to Gemini, which can read images.
 - **Better matching:** identify students by email address or student ID instead of name.
 - **Processed folder:** move each `.eml` to `inbox/done/` after filing.
@@ -329,19 +336,19 @@ python -c "from erasmus_inbox import tools; print(tools.list_emails()); print(to
 Setup steps are in [GMAIL_SETUP.md](GMAIL_SETUP.md). This section explains how it works.
 
 ```
- Gmail label "Erasmus"                       watch_gmail.py (every 30 s)
+ Gmail label "Erasmus"                       watch_gmail.py (every 5 s)
  ┌───────────────────┐  find_new_messages   ┌──────────────────────────────┐
  │ new student email │ ───────────────────► │ download_eml → inbox/gmail_… │
  └───────────────────┘                      │ ADK Runner: same root_agent  │
           ▲                                 │   read_email, save_attachment│
-          │ label "Erasmus/Processed"        │   append_row, draft_reply ───┼──► Gmail Drafts
+          │ label "Erasmus/Processed"        │   append_row, reply ─────────┼──► reply sent (or Gmail Drafts)
           └──────────────────────────────── │ mark_processed               │
                                             └──────────────────────────────┘
 ```
 
 **`watch_gmail.py`**
 - Loads `.env`, signs in to Gmail, and creates an ADK `InMemoryRunner`: the same agent as in `adk web`, but driven from code.
-- Every `POLL_SECONDS` (30), it asks Gmail for new messages. Each one gets a fresh agent session with the prompt *"A new email arrived: gmail_<id>.eml. Process only this email."*
+- Every `POLL_SECONDS` (5), it asks Gmail for new messages. Each one gets a fresh agent session. The watcher reads the email itself (`read_email`) and puts its content in the prompt, marked as data rather than instructions, so the agent can file, update Excel and reply in a **single step**.
 - An email is labeled processed **only after** the agent finishes, so errors such as a network failure or a Gemini `503` lead to an automatic retry on the next round.
 
 **`erasmus_inbox/gmail_client.py`**
@@ -352,16 +359,30 @@ Setup steps are in [GMAIL_SETUP.md](GMAIL_SETUP.md). This section explains how i
 | `find_new_messages()` | Returns the ids of messages labeled `Erasmus` that aren't labeled `Erasmus/Processed`. Creates both labels if they're missing. |
 | `download_eml(msg_id)` | Saves the full original email as `inbox/gmail_<id>.eml`, so all version 1 tools work on it unchanged |
 | `mark_processed(msg_id)` | Adds the `Erasmus/Processed` label |
-| `create_draft_reply(msg_id, original, answer)` | Builds a reply (To, `Re:` subject, `In-Reply-To`) and stores it as a draft in the same Gmail conversation |
+| `auto_send_blocker(msg_id, original)` | Returns why sending would be unsafe (switched off, machine-sent, own address, already answered), or `""` if it's fine to send |
+| `send_reply(msg_id, original, answer)` | Builds a reply (To, `Re:` subject, `In-Reply-To`) and sends it in the same Gmail conversation |
+| `create_draft_reply(msg_id, original, answer)` | Builds the same reply but stores it in Gmail Drafts |
+| `AUTO_SEND` | `True` sends replies when it's safe; `False` saves every reply as a draft |
 
-**Permission (OAuth scope):** `gmail.modify` allows reading, labeling and creating drafts. It doesn't allow permanent deletion. The code never calls *send*.
+**Permission (OAuth scope):** `gmail.modify` allows reading, labeling, drafting and sending. It doesn't allow permanent deletion. The code only replies to the sender of the email being processed.
 
-**Agent changes:** the instruction now also covers single new emails ("handle only that email") and tells the agent to call `draft_reply` whenever an email contains a question.
+**Agent changes:** the instruction now also covers single new emails ("handle only that email") and tells the agent to call `reply_to_student` whenever an email contains a question, and to say whether the reply was sent or drafted.
 
-**Tested** with a fake Gmail service and real Gemini: only labeled mail is picked up, the email is downloaded byte-for-byte, the PDF is filed, the Excel row is updated, the draft reply lands in the right conversation with the right headers, the email gets labeled processed, and a processed email is never picked up again.
+**Tested** with a fake Gmail service:
+- With real Gemini: only labeled mail is picked up, the email is downloaded byte-for-byte, the PDF is filed, the Excel row is updated, the reply lands in the right conversation with the right headers, the email gets labeled processed, and a processed email is never picked up again.
+- For auto-send: a normal email gets a sent reply, while auto-replies, mailing lists, your own emails, already-answered conversations and `AUTO_SEND = False` all produce a draft instead.
+
+**Speed** (measured with one email containing a PDF and a question):
+
+| | Before tuning | After tuning |
+|---|---|---|
+| Wait for the next Gmail check | 0 to 30 s (polling every 30 s) | 0 to 5 s (polling every 5 s) |
+| Gemini round trips | 3 | 2 (email content in the prompt; all actions in one step) |
+| Processing | 15.1 s | 10.5 to 13.4 s (also `thinking_level="low"`) |
+| **Total, label to reply** | **about 15 to 45 s** | **about 11 to 18 s** |
 
 **Limits of version 2:**
-- It checks every 30 seconds rather than instantly.
+- It checks every 5 seconds rather than instantly.
 - It checks the newest 100 labeled emails per round.
 - Students are still matched by name.
 - With an External consent screen in "Testing" mode, Google asks you to sign in again every 7 days.
@@ -374,8 +395,9 @@ Setup steps are in [GMAIL_SETUP.md](GMAIL_SETUP.md). This section explains how i
 | **OAuth client / `credentials.json`** | The ID card of your program, created in Google Cloud |
 | **`token.json`** | The saved permission you gave after clicking "Allow" |
 | **Gmail label** | A tag on an email, like a folder; an email can have several |
-| **Polling** | Checking for something new at regular intervals (here every 30 seconds) |
+| **Polling** | Checking for something new at regular intervals (here every 5 seconds) |
 | **Draft** | An email that is written but not sent, waiting in Gmail Drafts |
+| **Auto-reply loop** | Two automatic responders answering each other forever; prevented by never auto-replying to machine-sent mail |
 | **Agent** | An AI model that can decide by itself to call tools to complete a task |
 | **ADK** | Agent Development Kit: Google's Python toolkit for building agents |
 | **Tool** | A Python function the agent is allowed to call |

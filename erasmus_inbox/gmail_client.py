@@ -12,9 +12,10 @@ BASE = Path(__file__).parent
 INBOX = BASE / "inbox"
 CREDENTIALS = BASE / "credentials.json"  # OAuth client downloaded from Google Cloud
 TOKEN = BASE / "token.json"  # saved after you click "Allow" the first time
-SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]  # read, label and draft; cannot delete for good
+SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]  # read, label, draft and send; cannot delete for good
 WATCH_LABEL = "Erasmus"
 DONE_LABEL = "Erasmus/Processed"
+AUTO_SEND = True  # False = replies are only saved in Gmail Drafts for staff to check
 _service = None
 _label_ids = {}
 
@@ -72,8 +73,13 @@ def mark_processed(msg_id: str) -> None:
     get_service().users().messages().modify(userId="me", id=msg_id, body=body).execute()
 
 
-def create_draft_reply(msg_id: str, original, answer: str) -> str:
-    """Puts a reply to the original email in Gmail Drafts (it is never sent) and returns the draft id."""
+def _thread_id(msg_id: str) -> str:
+    """Returns the id of the Gmail conversation the message belongs to."""
+    return get_service().users().messages().get(userId="me", id=msg_id, format="minimal").execute()["threadId"]
+
+
+def _reply(msg_id: str, original, answer: str) -> dict:
+    """Builds a reply to the original sender, in the same Gmail conversation."""
     reply = EmailMessage()
     reply["To"] = original["Reply-To"] or original["From"]
     subject = original["Subject"] or ""
@@ -81,6 +87,31 @@ def create_draft_reply(msg_id: str, original, answer: str) -> str:
     if original["Message-ID"]:
         reply["In-Reply-To"] = reply["References"] = original["Message-ID"]
     reply.set_content(answer)
-    thread_id = get_service().users().messages().get(userId="me", id=msg_id, format="minimal").execute()["threadId"]
-    body = {"message": {"raw": base64.urlsafe_b64encode(bytes(reply)).decode(), "threadId": thread_id}}
+    return {"raw": base64.urlsafe_b64encode(bytes(reply)).decode(), "threadId": _thread_id(msg_id)}
+
+
+def auto_send_blocker(msg_id: str, original) -> str:
+    """Returns why sending automatically would be unsafe, or "" if it is fine to send."""
+    if not AUTO_SEND:
+        return "automatic sending is turned off (AUTO_SEND = False)"
+    if (original["Auto-Submitted"] or "no").lower() != "no" or \
+            (original["Precedence"] or "").lower() in {"bulk", "junk", "list", "auto_reply"}:
+        return "the email was sent by a machine (auto-reply or mailing list)"
+    me = get_service().users().getProfile(userId="me").execute()["emailAddress"].lower()
+    if me in (original["From"] or "").lower():
+        return "the email came from this mailbox itself"
+    thread = get_service().users().threads().get(userId="me", id=_thread_id(msg_id), format="minimal").execute()
+    if any("SENT" in m.get("labelIds", []) for m in thread.get("messages", [])):
+        return "this conversation already has a reply from us"
+    return ""
+
+
+def send_reply(msg_id: str, original, answer: str) -> str:
+    """Sends a reply to the original sender in the same conversation and returns the sent message id."""
+    return get_service().users().messages().send(userId="me", body=_reply(msg_id, original, answer)).execute()["id"]
+
+
+def create_draft_reply(msg_id: str, original, answer: str) -> str:
+    """Puts a reply to the original email in Gmail Drafts (not sent) and returns the draft id."""
+    body = {"message": _reply(msg_id, original, answer)}
     return get_service().users().drafts().create(userId="me", body=body).execute()["id"]
