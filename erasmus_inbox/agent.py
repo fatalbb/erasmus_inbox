@@ -38,7 +38,7 @@ FAQ:
 
 root_agent = Agent(
     name="erasmus_inbox",
-    model="gemini-3.5-flash",
+    model="gemini-flash-lite-latest",  # own free daily quota; gemini-3.5-flash is more accurate
     # less "thinking" before each answer = faster replies; the tasks here are simple
     generate_content_config=types.GenerateContentConfig(
         thinking_config=types.ThinkingConfig(thinking_level="low")),

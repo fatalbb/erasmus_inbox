@@ -17,4 +17,5 @@ erasmus_inbox/inbox/
 erasmus_inbox/filed/
 erasmus_inbox/students.xlsx
 erasmus_inbox/drafts/
+erasmus_inbox/activity.json
 ~$*.xlsx

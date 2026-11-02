@@ -66,7 +66,10 @@ python watch_gmail.py
 
 ```
 Watching the Gmail label "Erasmus" every 5s. Ctrl+C to stop.
+Dashboard: http://localhost:8080
 ```
+
+Open **http://localhost:8080** in your browser to watch each email's progress live.
 
 A file `erasmus_inbox/token.json` is created, so you won't have to sign in again next time.
 
@@ -92,7 +95,8 @@ To stop the watcher, press **Ctrl+C**.
 | `Error 403: access_denied` in the browser | Your account isn't a test user. Add it in Part B, step 5. |
 | `Gmail API has not been used in project ...` | The Gmail API isn't enabled. Do Part A, step 3. |
 | `invalid_grant` or `Token has been expired or revoked` | Delete `erasmus_inbox/token.json` and run the watcher again to sign in. With an **External** app in **Testing**, Google makes you sign in again every 7 days. |
-| `Problem, will retry in 5s: 503 UNAVAILABLE` | Gemini is overloaded. The watcher retries by itself, and the email stays unprocessed until it succeeds. If it keeps happening, try another model in `model=` in `agent.py`, such as `gemini-flash-lite-latest`. |
+| `Problem, will retry in 5s: 503 UNAVAILABLE` | Gemini is overloaded. The watcher retries by itself, and the email stays unprocessed until it succeeds. If it keeps happening, try another model in `model=` in `agent.py`, such as `gemini-3.5-flash`. |
+| `Gemini quota used up, pausing 5 min: 429 RESOURCE_EXHAUSTED` | You've used up the free daily Gemini quota for this model (for example 20 requests a day, about 10 emails). The watcher pauses 5 minutes between attempts and continues by itself once the quota resets. To continue sooner, switch `model=` in `agent.py` (each model has its own daily quota) or enable billing for your API key's project. |
 | Nothing happens | Check that the email has the label **Erasmus** and not already **Erasmus/Processed**. |
 
 To remove the agent's access to your Gmail at any time, go to https://myaccount.google.com/permissions.

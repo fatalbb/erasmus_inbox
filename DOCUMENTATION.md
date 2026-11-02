@@ -45,7 +45,7 @@ This project hands that routine work to an **AI agent**. The agent uses a langua
                            ▼
             ┌──────────────────────────────┐        ┌─────────────────────┐
             │  root_agent  (agent.py)      │ ◄────► │  Gemini API         │
-            │  instructions + FAQ + tools  │        │  gemini-3.5-flash   │
+            │  instructions + FAQ + tools  │        │  flash-lite-latest  │
             └──────────────┬───────────────┘        └─────────────────────┘
                            │ tool calls chosen by the model
                            ▼
@@ -68,7 +68,7 @@ Defines `root_agent`, the object ADK looks for when it loads the folder.
 | Field | Value | Purpose |
 |---|---|---|
 | `name` | `erasmus_inbox` | Name shown in the ADK menu |
-| `model` | `gemini-3.5-flash` | Fast, low-cost Gemini model, available on the free tier. It replaced `gemini-flash-latest`, which was often overloaded (`503`). |
+| `model` | `gemini-flash-lite-latest` | Small, fast Gemini model with its own free daily quota. Earlier choices were `gemini-flash-latest`, which was often overloaded (`503`), and then `gemini-3.5-flash`, which is more accurate but whose free tier allows only 20 requests a day (`429`). Switch back to it if you enable billing. |
 | `generate_content_config` | `thinking_level="low"` | Less "thinking" before each answer, so replies are faster. The tasks are simple, so accuracy was unchanged in testing. |
 | `description` | one sentence | Summary of what the agent does, used when agents are combined |
 | `instruction` | `INSTRUCTION + FAQ` | The system prompt: the 5-step filing procedure, the FAQ rule and the contents of `faq.txt` |
@@ -302,7 +302,7 @@ python -c "from erasmus_inbox import tools; print(tools.list_emails()); print(to
 - **Version 1 marks nothing as processed:** each run processes the whole inbox again. Version 2 labels each handled email `Erasmus/Processed`. This is safe, because files are overwritten and rows updated rather than duplicated, but it's slower.
 - **PDF text is truncated** to 2000 characters per attachment.
 - **The model can make mistakes.** Staff should review the summary table, especially for unusual documents.
-- **Free-tier rate limits** can slow down or interrupt long runs (error `429`).
+- **Free-tier limits** can stop the agent (error `429`). Each model has a daily request limit per project (for example 20 a day for `gemini-3.5-flash`), and each email uses about 2 requests. The watcher pauses 5 minutes after a `429` instead of retrying every 5 seconds.
 
 ## 11. Troubleshooting
 
@@ -313,7 +313,7 @@ python -c "from erasmus_inbox import tools; print(tools.list_emails()); print(to
 | `The module '.venv' could not be loaded` | `.venv` doesn't exist yet. Run `python -m venv .venv` first. |
 | `'adk' is not recognized` | The virtual environment is off. Run `.venv\Scripts\Activate.ps1`. |
 | `UnicodeEncodeError: 'charmap' codec` | Windows text encoding problem. Run `$env:PYTHONUTF8 = "1"`. |
-| `429` / `RESOURCE_EXHAUSTED` | You hit the free-tier rate limit. Wait a minute and resend. |
+| `429` / `RESOURCE_EXHAUSTED` | You hit a free-tier limit. "Per minute" limits clear after a minute. For "per day" limits, wait for the reset shown in the message ("retry in …h"), switch `model=` to another model (each has its own quota), or enable billing. |
 | `API key not valid`, `400` or `403` | Fix `GOOGLE_API_KEY` in `.env` and restart `adk web` |
 | `students.xlsx is open in Excel` | Close Excel and ask the agent to retry |
 | `erasmus_inbox` missing from the menu | Run `adk web` from the folder that **contains** `erasmus_inbox/` |
@@ -372,7 +372,23 @@ Setup steps are in [GMAIL_SETUP.md](GMAIL_SETUP.md). This section explains how i
 - With real Gemini: only labeled mail is picked up, the email is downloaded byte-for-byte, the PDF is filed, the Excel row is updated, the reply lands in the right conversation with the right headers, the email gets labeled processed, and a processed email is never picked up again.
 - For auto-send: a normal email gets a sent reply, while auto-replies, mailing lists, your own emails, already-answered conversations and `AUTO_SEND = False` all produce a draft instead.
 
-**Speed** (measured with one email containing a PDF and a question):
+**Live dashboard** (`dashboard.py` + `dashboard.html`)
+- `watch_gmail.py` calls `dashboard.start()`, which serves a FastAPI app with uvicorn in a background thread on `127.0.0.1:8080`.
+- The watcher reports progress through `email_received`, `agent_event`, `email_finished`, `email_failed` and `set_watcher`. `agent_event` reads each ADK event: a call to `reply_to_student` stores the reply text; the results of `save_attachment`, `append_row` and `reply_to_student` mark the steps *PDF filed*, *Excel* and *Reply* (`sent` or `drafted`). Steps an email didn't need become `skipped`.
+- The state is saved to `erasmus_inbox/activity.json` after every change, so the history survives restarts. An email that was halfway through when the watcher stopped is shown as failed, and it's retried.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /` | the page (`dashboard.html`); it polls `/api/state` every 2 seconds |
+| `GET /api/state` | watcher status, the newest 50 emails with their steps, the list of filed PDFs, and the rows of `students.xlsx` |
+| `GET /files/<student>/<file>.pdf` | a filed PDF; anything outside `filed/` or not a PDF gets 404 |
+| `GET /students.xlsx` | the spreadsheet as a download |
+
+Security: the server listens only on `127.0.0.1`, so other computers can't open it. The page inserts all email text as escaped plain text, so a crafted subject line can't inject HTML or scripts.
+
+Tested with a fake Gmail and a scripted agent that called the real tools: a sent reply, a drafted reply, and a quota failure followed by a successful retry. The page showed each state correctly, PDF and Excel links opened, path-traversal attempts returned 404, and the layout fit a 375-pixel phone screen.
+
+**Speed** (measured with `gemini-3.5-flash` on one email containing a PDF and a question; the lite model answered a short test in about 3 s):
 
 | | Before tuning | After tuning |
 |---|---|---|

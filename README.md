@@ -2,7 +2,7 @@
 
 An AI agent that helps a university Erasmus office handle its inbox. It reads student emails, recognises each attached document, files it under a consistent name, keeps a spreadsheet of students up to date and answers common student questions from a short FAQ.
 
-Built with Google's [Agent Development Kit (ADK)](https://google.github.io/adk-docs/) and the Gemini model `gemini-3.5-flash`.
+Built with Google's [Agent Development Kit (ADK)](https://google.github.io/adk-docs/) and the Gemini model `gemini-flash-lite-latest`.
 
 There are two ways to run it:
 - **Version 1:** process a folder of `.eml` files from the ADK web chat.
@@ -30,6 +30,8 @@ erasmus-hackathon/
 ├── DOCUMENTATION.md       full technical documentation
 ├── GMAIL_SETUP.md         version 2: step-by-step Google Cloud and Gmail setup
 ├── watch_gmail.py         version 2: watches Gmail and runs the agent on new mail
+├── dashboard.py           version 2: live web page server (started by watch_gmail.py)
+├── dashboard.html         version 2: the live web page
 ├── requirements.txt       Python libraries to install
 ├── .gitignore             keeps secrets and generated files out of Git
 ├── examples/              input and output of a real run (fake data)
@@ -48,6 +50,7 @@ erasmus-hackathon/
     ├── inbox/             .eml files to process
     ├── filed/             created by the agent: renamed PDFs
     ├── drafts/            created by the agent: reply drafts for local test emails
+    ├── activity.json      version 2: dashboard history (not shared)
     └── students.xlsx      created by the agent: one row per student
 ```
 
@@ -131,6 +134,18 @@ python watch_gmail.py
 ```
 
 The first run opens your browser so you can click **Allow**. After that, the terminal shows each new email as it's processed. Press Ctrl+C to stop.
+
+### Live dashboard
+
+While the watcher runs, open **http://localhost:8080** in your browser. The page updates every 2 seconds and shows:
+
+- **one card per incoming email:** sender, subject, attachments, and a **progress bar** with the steps Received → AI reading → PDF filed → Excel → Reply (**Sent ✓** in green, **Drafted** in amber, or "—" when there was no question) → Done. A failed step turns red, and the error is shown while the watcher retries;
+- **what was saved:** links that open each filed PDF, the student's Excel row, and the reply text that was sent or drafted;
+- **Saved documents:** every PDF in `filed/`, grouped by student;
+- **students.xlsx:** the live table, with a download button;
+- **watcher status** at the top: *Watching*, *Paused* (Gemini quota) or *Problem*, plus counters for emails, replies sent, drafts, failures, PDFs and students.
+
+The page is only reachable from your own computer (`127.0.0.1`). Its history is kept in `erasmus_inbox/activity.json`, which Git ignores.
 
 Version 1 still works unchanged with `adk web`. There, `reply_to_student` never sends: it saves replies as text files in `erasmus_inbox/drafts/`.
 

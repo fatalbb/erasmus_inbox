@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Erasmus Inbox Live</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --text: #1d2330; --muted: #677085; --line: #e2e5eb;
+    --accent: #2f6fde; --ok: #1f9d63; --warn: #d98a0b; --bad: #d64545; --idle: #dfe3ea;
+    --shadow: 0 1px 2px rgba(20, 30, 50, .06), 0 2px 8px rgba(20, 30, 50, .05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b1f27; --text: #e7eaf0; --muted: #98a1b3; --line: #2b313c;
+      --accent: #6c9cf2; --ok: #3cc488; --warn: #f0a83a; --bad: #f07070; --idle: #2e3440;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 20px 24px 8px; display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px;
+          background: var(--card); box-shadow: var(--shadow); border: 1px solid var(--line); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.watching { background: var(--ok); animation: pulse 1.6s infinite; }
+  .dot.paused { background: var(--warn); } .dot.error, .dot.offline { background: var(--bad); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 24px 16px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px;
+          box-shadow: var(--shadow); min-width: 92px; }
+  .stat b { display: block; font-size: 20px; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; padding: 0 24px 32px; }
+  @media (max-width: 960px) { main { grid-template-columns: minmax(0, 1fr); } }
+  main > section, main > aside { min-width: 0; }  /* lets wide tables scroll instead of widening the page */
+  @media (max-width: 520px) { header, .stats, main { padding-left: 16px; padding-right: 16px; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px;
+          box-shadow: var(--shadow); margin-bottom: 14px; }
+  .top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+  .subject { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); font-size: 12.5px; margin-top: 2px; overflow-wrap: anywhere; }
+  .badge { flex: none; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; color: #fff; }
+  .badge.processing { background: var(--accent); } .badge.done { background: var(--ok); }
+  .badge.drafted { background: var(--warn); } .badge.failed { background: var(--bad); }
+  .bar { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin: 14px 0 4px; }
+  .seg { height: 8px; border-radius: 4px; background: var(--idle); }
+  .seg.done, .seg.sent { background: var(--ok); } .seg.drafted { background: var(--warn); }
+  .seg.error { background: var(--bad); }
+  .seg.skipped { background: repeating-linear-gradient(45deg, var(--idle) 0 4px, transparent 4px 8px); }
+  .seg.active { background: linear-gradient(90deg, var(--accent) 0 40%, var(--idle) 40%); background-size: 200% 100%;
+                animation: run 1.1s linear infinite; }
+  @keyframes run { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+  .labels { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; font-size: 11.5px; color: var(--muted); }
+  .labels .done, .labels .sent { color: var(--ok); } .labels .drafted { color: var(--warn); }
+  .labels .error { color: var(--bad); font-weight: 600; } .labels .active { color: var(--accent); font-weight: 600; }
+  .details { margin-top: 12px; display: grid; gap: 8px; }
+  .row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .row > .k { color: var(--muted); font-size: 12px; min-width: 64px; }
+  a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; } a:hover { text-decoration: underline; }
+  .chip { display: inline-block; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+          padding: 1px 7px; font-size: 12.5px; margin: 2px 4px 2px 0; max-width: 100%; overflow-wrap: anywhere; }
+  .reply { white-space: pre-wrap; background: var(--bg); border-left: 3px solid var(--ok); border-radius: 6px;
+           padding: 8px 10px; font-size: 13px; margin-top: 4px; }
+  .reply.drafted { border-left-color: var(--warn); }
+  .error { color: var(--bad); }
+  .errbox { background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); border-radius: 6px;
+            padding: 8px 10px; font-size: 12.5px; overflow-wrap: anywhere; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+  .folder { font-weight: 600; margin: 10px 0 4px; } .folder:first-child { margin-top: 0; }
+  .file { display: block; padding: 2px 0 2px 14px; font-size: 13px; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  .btn { display: inline-block; margin-top: 10px; padding: 6px 12px; border-radius: 8px; background: var(--accent);
+         color: #fff; font-weight: 600; font-size: 13px; }
+  .btn:hover { text-decoration: none; opacity: .9; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Erasmus Inbox · Live</h1>
+  <div class="pill"><span class="dot" id="dot"></span><span id="watcher">Connecting…</span></div>
+</header>
+<div class="stats" id="stats"></div>
+<main>
+  <section>
+    <h2>Incoming emails</h2>
+    <div id="emails"></div>
+  </section>
+  <aside>
+    <div class="card">
+      <h2>Saved documents</h2>
+      <div id="files"></div>
+    </div>
+    <div class="card">
+      <h2>students.xlsx</h2>
+      <div id="students"></div>
+    </div>
+  </aside>
+</main>
+<script>
+const LABELS = { received: "Received", reading: "AI reading", filed: "PDF filed",
+                 excel: "Excel", reply: "Reply", done: "Done" };
+const STATUS_TEXT = { sent: "Sent ✓", drafted: "Drafted", skipped: "—", error: "Failed" };
+const openDetails = new Set();  // keeps "show reply" sections open across refreshes
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fileUrl = path => "/files/" + path.split("/").map(encodeURIComponent).join("/");
+const time = iso => iso ? new Date(iso).toLocaleTimeString() : "";
+
+function stepStatus(card, step) {
+  const status = card.steps[step];
+  if (card.state !== "processing" || status !== "pending") return status;
+  const firstPending = Object.keys(LABELS).find(s => card.steps[s] === "pending");
+  return step === firstPending ? "active" : "pending";
+}
+
+function renderCard(card) {
+  const reply = card.reply;
+  const badge = card.state === "failed" ? ["failed", "Failed – will retry"]
+    : card.state === "processing" ? ["processing", "Processing…"]
+    : reply?.status === "drafted" ? ["drafted", "Done · reply drafted"]
+    : reply?.status === "sent" ? ["done", "Done · reply sent"] : ["done", "Done"];
+  const steps = Object.keys(LABELS).map(s => [s, stepStatus(card, s)]);
+  const saved = card.saved.map(p => {
+    const inFiled = p.replace(/^filed\//, "");
+    return `<a class="chip" href="${fileUrl(inFiled)}" target="_blank" rel="noopener">📄 ${esc(inFiled.split("/").pop())}</a>`;
+  }).join("");
+  const isOpen = openDetails.has(card.id) ? "open" : "";
+  return `<div class="card">
+    <div class="top">
+      <div><div class="subject">${esc(card.subject || "(no subject)")}</div>
+        <div class="meta">${esc(card.from)} · ${time(card.received)}
+          ${card.attachments.length ? " · 📎 " + card.attachments.map(esc).join(", ") : " · no attachment"}</div></div>
+      <span class="badge ${badge[0]}">${badge[1]}</span>
+    </div>
+    <div class="bar">${steps.map(([, st]) => `<div class="seg ${st}"></div>`).join("")}</div>
+    <div class="labels">${steps.map(([s, st]) =>
+      `<div class="${st}">${s === "reply" && STATUS_TEXT[st] ? STATUS_TEXT[st] : LABELS[s]}</div>`).join("")}</div>
+    <div class="details">
+      ${saved ? `<div class="row"><span class="k">Saved</span><span>${saved}</span></div>` : ""}
+      ${card.student ? `<div class="row"><span class="k">Excel</span><span>Row for <b>${esc(card.student)}</b></span></div>` : ""}
+      ${reply?.text ? `<div class="row"><span class="k">Reply</span><span>${
+        reply.status === "sent" ? "Sent to " + esc(reply.to)
+        : reply.status === "drafted" ? "Saved in Gmail Drafts – " + esc(reply.reason || "")
+        : "Writing…"}</span></div>
+        <details data-id="${esc(card.id)}" ${isOpen}><summary>Show reply text</summary>
+          <div class="reply ${reply.status === "drafted" ? "drafted" : ""}">${esc(reply.text)}</div></details>` : ""}
+      ${card.error ? `<div class="errbox">${esc(card.error)}</div>` : ""}
+    </div>
+  </div>`;
+}
+
+function renderFiles(files) {
+  if (!files.length) return `<div class="empty">No PDFs filed yet</div>`;
+  const byStudent = {};
+  files.forEach(f => { const [folder] = f.split("/"); (byStudent[folder] ||= []).push(f); });
+  return Object.entries(byStudent).map(([folder, list]) =>
+    `<div class="folder">📁 ${esc(folder.replace("_", " "))}</div>` + list.map(f =>
+      `<a class="file" href="${fileUrl(f)}" target="_blank" rel="noopener">📄 ${esc(f.split("/").pop())}</a>`).join("")
+  ).join("");
+}
+
+function renderStudents(rows) {
+  if (rows.length < 2) return `<div class="empty">No students yet</div>`;
+  const [head, ...body] = rows;
+  return `<div class="tablewrap"><table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead>
+    <tbody>${body.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+    <a class="btn" href="/students.xlsx">Download students.xlsx</a>`;
+}
+
+function renderWatcher(w) {
+  const ago = w.last_check ? Math.max(0, Math.round((Date.now() - new Date(w.last_check)) / 1000)) : null;
+  const text = { watching: "Watching Gmail label “Erasmus”", paused: "Paused", error: "Problem",
+                 starting: "Starting…" }[w.status] || w.status;
+  document.getElementById("dot").className = "dot " + w.status;
+  document.getElementById("watcher").textContent =
+    text + (w.detail ? " – " + w.detail : "") + (ago !== null ? ` · checked ${ago}s ago` : "");
+}
+
+async function refresh() {
+  try {
+    const s = await (await fetch("/api/state", { cache: "no-store" })).json();
+    renderWatcher(s.watcher);
+    const count = f => s.emails.filter(f).length;
+    const stats = [["Emails", s.emails.length], ["Processing", count(e => e.state === "processing")],
+      ["Replies sent", count(e => e.reply?.status === "sent")], ["Drafted", count(e => e.reply?.status === "drafted")],
+      ["Failed", count(e => e.state === "failed")], ["PDFs filed", s.files.length],
+      ["Students", Math.max(0, s.students.length - 1)]];
+    document.getElementById("stats").innerHTML =
+      stats.map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join("");
+    document.getElementById("emails").innerHTML = s.emails.length ? s.emails.map(renderCard).join("")
+      : `<div class="card empty">No emails yet. Label an email “Erasmus” in Gmail and it appears here.</div>`;
+    document.getElementById("files").innerHTML = renderFiles(s.files);
+    document.getElementById("students").innerHTML = renderStudents(s.students);
+  } catch (e) {
+    document.getElementById("dot").className = "dot offline";
+    document.getElementById("watcher").textContent = "Not connected – is watch_gmail.py running?";
+  }
+}
+
+document.addEventListener("toggle", e => {
+  const id = e.target.dataset?.id;
+  if (id) e.target.open ? openDetails.add(id) : openDetails.delete(id);
+}, true);
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
