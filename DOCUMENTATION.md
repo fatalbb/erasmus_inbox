@@ -16,7 +16,8 @@ For setup instructions, see [README.md](README.md). This document explains how t
 10. [Limitations](#10-limitations)
 11. [Troubleshooting](#11-troubleshooting)
 12. [Ideas for next steps](#12-ideas-for-next-steps)
-13. [Glossary](#13-glossary)
+13. [Version 2: live Gmail watcher](#13-version-2-live-gmail-watcher)
+14. [Glossary](#14-glossary)
 
 ---
 
@@ -136,6 +137,17 @@ Behaviour:
 - A `threading.Lock` stops two calls running at the same time from overwriting each other.
 - If Excel has the file open, it returns an error asking you to close it.
 
+#### `draft_reply(email_filename, answer) -> dict`
+
+| Parameter | Description |
+|---|---|
+| `email_filename` | The `.eml` file the question came from |
+| `answer` | The full reply, from "Dear …," to "Kind regards, Erasmus Office" |
+
+- For Gmail emails (`gmail_<id>.eml`), it creates a reply in **Gmail Drafts**, in the same conversation, addressed to the sender, with `Re:` in the subject. It returns `{"status": "drafted", "where": "Gmail Drafts", "draft_id": ...}`.
+- For local test emails, it writes `drafts/<email>_reply.txt` instead, so version 1 works without Gmail.
+- It **never sends** anything: a person reviews every draft.
+
 #### Private helpers
 
 The leading `_` keeps these out of the agent's reach.
@@ -226,6 +238,9 @@ The agent drafts answers but **doesn't send emails**. A staff member stays in th
 | Wrong document type or year format | `save_attachment` rejects values that don't match `DOC_TYPES` or `YYYY-YY` |
 | Two Excel writes at once | `threading.Lock` in `append_row` |
 | API key leak | The key lives only in `.env`, which `.gitignore` excludes from Git |
+| The agent emails a student something wrong | Version 2 only creates **drafts**. Sending is always a human action. |
+| The agent reads private mail | Version 2 reads only emails with the Gmail label `Erasmus` |
+| Gmail sign-in files leak | `credentials.json` and `token.json` are excluded by `.gitignore`; access can be revoked at myaccount.google.com/permissions |
 | Real personal data | All test data is invented; see the free-tier note below |
 
 **Free-tier note:** on the free tier, Google may use the content sent to Gemini to improve its products. Use only fake data, or switch to a paid or institutional setup approved under your university's data-protection (GDPR) rules before processing real student documents.
@@ -277,7 +292,7 @@ python -c "from erasmus_inbox import tools; print(tools.list_emails()); print(to
 - **HTML-only emails** return an empty body.
 - **Students are matched by name only:** two students with the same name share a row, and different spellings (`Muller` and `Müller`) create two rows.
 - **Overwrites:** a second document of the same type and year, such as a corrected Learning Agreement, replaces the earlier file.
-- **Nothing is marked as processed:** each run processes the whole inbox again. This is safe, because files are overwritten and rows updated rather than duplicated, but it's slower.
+- **Version 1 marks nothing as processed:** each run processes the whole inbox again. Version 2 labels each handled email `Erasmus/Processed`. This is safe, because files are overwritten and rows updated rather than duplicated, but it's slower.
 - **PDF text is truncated** to 2000 characters per attachment.
 - **The model can make mistakes.** Staff should review the summary table, especially for unusual documents.
 - **Free-tier rate limits** can slow down or interrupt long runs (error `429`).
@@ -300,7 +315,8 @@ python -c "from erasmus_inbox import tools; print(tools.list_emails()); print(to
 
 ## 12. Ideas for next steps
 
-- **Real mailbox:** replace `list_emails` and `read_email` with versions that read from IMAP or Microsoft Graph instead of a folder.
+- **Other mailboxes:** version 2 supports Gmail. Outlook or Microsoft 365 would need a `graph_client.py` with the same functions, using Microsoft Graph.
+- **Instant delivery:** replace the 30-second polling with Gmail push notifications (`users.watch` with Google Cloud Pub/Sub).
 - **Scanned documents:** add OCR (for example Tesseract), or send the PDF directly to Gemini, which can read images.
 - **Better matching:** identify students by email address or student ID instead of name.
 - **Processed folder:** move each `.eml` to `inbox/done/` after filing.
@@ -308,10 +324,58 @@ python -c "from erasmus_inbox import tools; print(tools.list_emails()); print(to
 - **Missing-document report:** a tool that lists which students still owe which documents.
 - **Automated evaluation:** use `adk eval` with the 8 sample emails to check accuracy after every change.
 
-## 13. Glossary
+## 13. Version 2: live Gmail watcher
+
+Setup steps are in [GMAIL_SETUP.md](GMAIL_SETUP.md). This section explains how it works.
+
+```
+ Gmail label "Erasmus"                       watch_gmail.py (every 30 s)
+ ┌───────────────────┐  find_new_messages   ┌──────────────────────────────┐
+ │ new student email │ ───────────────────► │ download_eml → inbox/gmail_… │
+ └───────────────────┘                      │ ADK Runner: same root_agent  │
+          ▲                                 │   read_email, save_attachment│
+          │ label "Erasmus/Processed"        │   append_row, draft_reply ───┼──► Gmail Drafts
+          └──────────────────────────────── │ mark_processed               │
+                                            └──────────────────────────────┘
+```
+
+**`watch_gmail.py`**
+- Loads `.env`, signs in to Gmail, and creates an ADK `InMemoryRunner`: the same agent as in `adk web`, but driven from code.
+- Every `POLL_SECONDS` (30), it asks Gmail for new messages. Each one gets a fresh agent session with the prompt *"A new email arrived: gmail_<id>.eml. Process only this email."*
+- An email is labeled processed **only after** the agent finishes, so errors such as a network failure or a Gemini `503` lead to an automatic retry on the next round.
+
+**`erasmus_inbox/gmail_client.py`**
+
+| Function | What it does |
+|---|---|
+| `get_service()` | OAuth2 sign-in. The first time, it opens the browser and saves `token.json`; later it reuses and refreshes that token. |
+| `find_new_messages()` | Returns the ids of messages labeled `Erasmus` that aren't labeled `Erasmus/Processed`. Creates both labels if they're missing. |
+| `download_eml(msg_id)` | Saves the full original email as `inbox/gmail_<id>.eml`, so all version 1 tools work on it unchanged |
+| `mark_processed(msg_id)` | Adds the `Erasmus/Processed` label |
+| `create_draft_reply(msg_id, original, answer)` | Builds a reply (To, `Re:` subject, `In-Reply-To`) and stores it as a draft in the same Gmail conversation |
+
+**Permission (OAuth scope):** `gmail.modify` allows reading, labeling and creating drafts. It doesn't allow permanent deletion. The code never calls *send*.
+
+**Agent changes:** the instruction now also covers single new emails ("handle only that email") and tells the agent to call `draft_reply` whenever an email contains a question.
+
+**Tested** with a fake Gmail service and real Gemini: only labeled mail is picked up, the email is downloaded byte-for-byte, the PDF is filed, the Excel row is updated, the draft reply lands in the right conversation with the right headers, the email gets labeled processed, and a processed email is never picked up again.
+
+**Limits of version 2:**
+- It checks every 30 seconds rather than instantly.
+- It checks the newest 100 labeled emails per round.
+- Students are still matched by name.
+- With an External consent screen in "Testing" mode, Google asks you to sign in again every 7 days.
+
+## 14. Glossary
 
 | Term | Meaning |
 |---|---|
+| **OAuth2** | Google's "Sign in → Allow" system: you give a program permission to use your account without sharing your password |
+| **OAuth client / `credentials.json`** | The ID card of your program, created in Google Cloud |
+| **`token.json`** | The saved permission you gave after clicking "Allow" |
+| **Gmail label** | A tag on an email, like a folder; an email can have several |
+| **Polling** | Checking for something new at regular intervals (here every 30 seconds) |
+| **Draft** | An email that is written but not sent, waiting in Gmail Drafts |
 | **Agent** | An AI model that can decide by itself to call tools to complete a task |
 | **ADK** | Agent Development Kit: Google's Python toolkit for building agents |
 | **Tool** | A Python function the agent is allowed to call |

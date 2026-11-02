@@ -3,8 +3,11 @@
 __pycache__/
 *.pyc
 
-# Secrets: never commit your API key
+# Secrets: never commit your API key or Google sign-in files
 .env
+credentials.json
+client_secret*.json
+token.json
 
 # ADK local session data
 .adk/
@@ -13,4 +16,5 @@ __pycache__/
 erasmus_inbox/inbox/
 erasmus_inbox/filed/
 erasmus_inbox/students.xlsx
+erasmus_inbox/drafts/
 ~$*.xlsx

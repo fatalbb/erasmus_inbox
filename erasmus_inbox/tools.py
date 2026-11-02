@@ -13,6 +13,7 @@ BASE = Path(__file__).parent  # the erasmus_inbox/ folder
 INBOX = BASE / "inbox"
 FILED = BASE / "filed"
 EXCEL = BASE / "students.xlsx"
+DRAFTS = BASE / "drafts"  # reply drafts for local test emails (Gmail emails get real Gmail drafts)
 DOC_TYPES = {"LearningAgreement", "Transcript", "Insurance", "CertificateOfArrival"}
 HEADERS = ["Name", "Host university", "Start date", "End date", "Documents received"]
 _excel_lock = threading.Lock()  # stops two tool calls writing the Excel file at once
@@ -124,3 +125,23 @@ def append_row(surname: str, name: str, host_university: str, start_date: str,
         except PermissionError:
             return {"status": "error", "message": "students.xlsx is open in Excel. Close it and try again."}
     return {"status": action, "student": full_name}
+
+
+def draft_reply(email_filename: str, answer: str) -> dict:
+    """Saves a reply to a student's question as a draft for staff to check. It is never sent.
+
+    Args:
+        email_filename: the .eml file the question came from.
+        answer: the full reply text, from greeting to sign-off.
+    """
+    filename = Path(email_filename).name
+    if filename.startswith("gmail_"):
+        from . import gmail_client  # imported here so version 1 works without Gmail set up
+
+        msg_id = Path(filename).stem.removeprefix("gmail_")
+        draft_id = gmail_client.create_draft_reply(msg_id, _load(filename), answer)
+        return {"status": "drafted", "where": "Gmail Drafts", "draft_id": draft_id}
+    DRAFTS.mkdir(exist_ok=True)
+    path = DRAFTS / f"{Path(filename).stem}_reply.txt"
+    path.write_text(answer, encoding="utf-8")
+    return {"status": "drafted", "where": str(path.relative_to(BASE))}

@@ -4,6 +4,10 @@ An AI agent that helps a university Erasmus office handle its inbox. It reads st
 
 Built with Google's [Agent Development Kit (ADK)](https://google.github.io/adk-docs/) and the Gemini model `gemini-flash-latest`.
 
+There are two ways to run it:
+- **Version 1:** process a folder of `.eml` files from the ADK web chat.
+- **Version 2:** watch a live Gmail label and handle each new email automatically, including draft replies. See [Version 2](#version-2-live-gmail-watcher).
+
 ## What it does
 
 Students send documents with random file names such as `scan_0042.pdf` or `IMG_20260611_0931.pdf`. For every `.eml` file in the inbox, the agent:
@@ -24,19 +28,26 @@ Supported document types: `LearningAgreement`, `Transcript`, `Insurance`, `Certi
 erasmus-hackathon/
 ├── README.md              this file
 ├── DOCUMENTATION.md       full technical documentation
+├── GMAIL_SETUP.md         version 2: step-by-step Google Cloud and Gmail setup
+├── watch_gmail.py         version 2: watches Gmail and runs the agent on new mail
+├── requirements.txt       Python libraries to install
 ├── .gitignore             keeps secrets and generated files out of Git
 ├── examples/              input and output of a real run (fake data)
 ├── .venv/                 Python virtual environment (not shared)
 └── erasmus_inbox/         the agent (ADK loads this folder)
     ├── __init__.py        makes the folder a Python package
     ├── agent.py           agent definition: model, instructions, tools
-    ├── tools.py           list_emails, read_email, save_attachment, append_row
+    ├── tools.py           list_emails, read_email, save_attachment, append_row, draft_reply
+    ├── gmail_client.py    version 2: Gmail sign-in, labels, downloads, drafts
     ├── faq.txt            the questions and answers the agent may use
     ├── make_samples.py    generates 8 fake test emails
     ├── .env               your Gemini API key (secret, never share)
+    ├── credentials.json   version 2: your OAuth client from Google Cloud (secret)
+    ├── token.json         version 2: created after you click "Allow" (secret)
     ├── .gitignore         keeps .env out of Git
     ├── inbox/             .eml files to process
     ├── filed/             created by the agent: renamed PDFs
+    ├── drafts/            created by the agent: reply drafts for local test emails
     └── students.xlsx      created by the agent: one row per student
 ```
 
@@ -57,7 +68,7 @@ python -m venv .venv
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .venv\Scripts\Activate.ps1
 $env:PYTHONUTF8 = "1"
-pip install google-adk openpyxl pypdf fpdf2
+pip install -r requirements.txt
 ```
 
 On macOS or Linux, activate with `source .venv/bin/activate` and skip the two lines before and after it.
@@ -100,6 +111,27 @@ Try asking questions in the chat as well:
 
 To start again from a clean state, delete `erasmus_inbox/filed/` and `erasmus_inbox/students.xlsx`.
 
+## Version 2: live Gmail watcher
+
+`watch_gmail.py` signs in to your Gmail with **OAuth2** and checks the label **Erasmus** every 30 seconds. For each new email it:
+
+1. downloads it into `erasmus_inbox/inbox/` as `gmail_<id>.eml`;
+2. runs the same agent on it: it files the PDFs and updates `students.xlsx`;
+3. if the email asks a question, writes a **draft reply** in Gmail Drafts. Nothing is sent automatically, so staff check and send each reply;
+4. adds the label **Erasmus/Processed**, so the email is never handled twice. If anything fails, such as no internet or an overloaded Gemini, the email stays unprocessed and is retried 30 seconds later.
+
+Gmail access uses OAuth2, because Google doesn't allow API keys to read a private mailbox. The Gemini API key in `.env` is still used for the AI. The app asks for one permission, `gmail.modify` (read, label and create drafts), and the code never sends or deletes email.
+
+**Setup (once, about 15 minutes):** follow [GMAIL_SETUP.md](GMAIL_SETUP.md) to create a Google Cloud OAuth client, save it as `erasmus_inbox/credentials.json` and create the Gmail label. Then:
+
+```powershell
+python watch_gmail.py
+```
+
+The first run opens your browser so you can click **Allow**. After that, the terminal shows each new email as it's processed. Press Ctrl+C to stop.
+
+Version 1 still works unchanged with `adk web`. There, `draft_reply` saves drafts as text files in `erasmus_inbox/drafts/` instead of Gmail.
+
 ## Customising
 
 - **FAQ:** edit `erasmus_inbox/faq.txt` and restart `adk web`. Don't use `{` or `}`, because ADK treats them as placeholders.
@@ -111,6 +143,6 @@ See [DOCUMENTATION.md](DOCUMENTATION.md) for how everything works, its limitatio
 ## Security and privacy
 
 - **Never commit `erasmus_inbox/.env`.** It contains your API key.
-- The root `.gitignore` keeps `.env`, `.venv/`, ADK session data, `inbox/`, `filed/` and `students.xlsx` out of Git, so no key or student document is ever committed. After cloning, recreate the test emails with `make_samples.py`.
+- The root `.gitignore` keeps `.env`, `credentials.json`, `token.json`, `.venv/`, ADK session data, `inbox/`, `filed/`, `drafts/` and `students.xlsx` out of Git, so no key, Google sign-in file or student document is ever committed. After cloning, recreate the test emails with `make_samples.py`.
 - All sample data is invented. Don't process real student documents on the free Gemini tier without checking your university's data-protection (GDPR) rules first, because Google may use free-tier content to improve its products.
 - The agent treats text in emails and PDFs as data, never as instructions. Its tools can only read from `inbox/` and write inside `filed/` and `students.xlsx`.
