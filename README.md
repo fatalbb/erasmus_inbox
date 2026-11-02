@@ -25,6 +25,7 @@ erasmus-hackathon/
 ├── README.md              this file
 ├── DOCUMENTATION.md       full technical documentation
 ├── .gitignore             keeps secrets and generated files out of Git
+├── examples/              input and output of a real run (fake data)
 ├── .venv/                 Python virtual environment (not shared)
 └── erasmus_inbox/         the agent (ADK loads this folder)
     ├── __init__.py        makes the folder a Python package
@@ -82,6 +83,8 @@ Process the inbox
 ```
 
 ## What you should see
+
+To see the results of a real run without installing anything, look in [examples/](examples/README.md): 8 of 8 documents filed correctly, 5 of 5 students, and 3 of 3 questions handled.
 
 - The chat shows each tool call as it happens: `list_emails`, `read_email` ×8, `save_attachment` ×8 and `append_row` ×5. A full run takes about 30 seconds to 2 minutes.
 - At the end there is a summary table and the agent's answers to student questions.
