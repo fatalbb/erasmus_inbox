@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets: never commit your API key
+.env
+
+# ADK local session data
+.adk/
+
+# Created by make_samples.py and by the agent (may contain student data)
+erasmus_inbox/inbox/
+erasmus_inbox/filed/
+erasmus_inbox/students.xlsx
+~$*.xlsx
