@@ -115,10 +115,10 @@ Returns:
 |---|---|---|
 | `email_filename` | `email_03.eml` | Must be in `inbox/` |
 | `attachment_filename` | `document(3).pdf` | Must match an attachment in that email exactly |
-| `surname` | `Fischer` | Unsafe characters removed; spaces become `-` |
+| `surname` | `Fischer` | Accents removed (`Şahin` → `Sahin`), unsafe characters removed, spaces become `-` |
 | `name` | `Lena` | Same as `surname` |
 | `doc_type` | `Insurance` | Must be one of the 4 types in `DOC_TYPES` |
-| `academic_year` | `2026-27` | Must match `YYYY-YY` |
+| `academic_year` | `2026-27` | Must match `YYYY-YY`, with consecutive years (`2025-29` is rejected, and the agent is told to use the year of the mobility dates) |
 
 On success it returns `{"status": "saved", "path": "filed\\Fischer_Lena\\Fischer_Lena_Insurance_2026-27.pdf"}`. It creates the student folder if needed and **overwrites** a file that has the same name.
 
@@ -133,7 +133,7 @@ On success it returns `{"status": "saved", "path": "filed\\Fischer_Lena\\Fischer
 
 Behaviour:
 - Creates `students.xlsx` with a header row the first time it's called.
-- If a row with the same name already exists (case-insensitive), it **updates** that row instead of adding a new one. Non-empty values replace old ones, empty values leave them alone, and the document lists are **merged**, sorted and de-duplicated.
+- If a row with the same name already exists, ignoring case and accents (`Şahin Emre` = `Sahin Emre`), it **updates** that row instead of adding a new one. Non-empty values replace old ones, empty values leave them alone, and the document lists are **merged**, sorted and de-duplicated.
 - Returns `{"status": "added" | "updated", "student": "Fischer Lena"}`.
 - A `threading.Lock` stops two calls running at the same time from overwriting each other.
 - If Excel has the file open, it returns an error asking you to close it.
@@ -158,7 +158,8 @@ Behaviour:
 The leading `_` keeps these out of the agent's reach.
 
 - `_load(filename)` opens an `.eml` from `inbox/`. Calling `Path(filename).name` throws away any folder part, so `../../x` can't escape the folder.
-- `_clean(text)` keeps letters (accents included), digits, `-` and `_`.
+- `_plain(text)` removes accents (`Ş` → `S`, `é` → `e`, `ı` → `i`); `_clean(text)` then keeps only letters, digits, `-` and `_`.
+- `pdf_attachments(filename)` returns each PDF's bytes. It isn't an agent tool: version 2's watcher uses it to send the PDFs themselves to Gemini.
 
 ### 3.3 `erasmus_inbox/faq.txt`
 
@@ -240,7 +241,7 @@ In version 1, answers only appear in the chat or in `drafts/`. In version 2, the
 |---|---|
 | An email tells the agent to do something else (prompt injection) | The instruction says text in emails and PDFs is data, never instructions. The tools can't send, delete or reach outside the project. |
 | A file name tries to escape the folder (`../../`) | `_load` keeps only the bare file name; `_clean` strips unsafe characters from names used in paths |
-| Wrong document type or year format | `save_attachment` rejects values that don't match `DOC_TYPES` or `YYYY-YY` |
+| Wrong document type or year | `save_attachment` rejects values that don't match `DOC_TYPES`, aren't `YYYY-YY`, or don't have consecutive years |
 | Two Excel writes at once | `threading.Lock` in `append_row` |
 | API key leak | The key lives only in `.env`, which `.gitignore` excludes from Git |
 | The agent emails a student something wrong | Answers come only from the FAQ, otherwise "I'll pass this to staff". Every sent reply is visible in Gmail **Sent**. Set `AUTO_SEND = False` to review everything first. |
@@ -294,10 +295,10 @@ python -c "from erasmus_inbox import tools; print(tools.list_emails()); print(to
 
 ## 10. Limitations
 
-- **Scanned PDFs:** `pypdf` reads only real text. A scanned image returns empty text, so the agent has only the email body to go on.
+- **Scanned or "printed" PDFs:** `pypdf` reads only real text. A scan, or a file made with "Microsoft Print to PDF" that draws letters as shapes, returns empty text. Version 2 also sends each PDF itself to Gemini, which reads the page visually, so these work there. Version 1 (`adk web`) only has the extracted text.
 - **Only PDFs are handled properly:** other attachments (JPG, DOCX) are listed, but `save_attachment` always saves with a `.pdf` extension.
 - **HTML-only emails** return an empty body.
-- **Students are matched by name only:** two students with the same name share a row, and different spellings (`Muller` and `Müller`) create two rows.
+- **Students are matched by name only:** two students with the same name share a row. Accents are ignored (`Muller` = `Müller`), but other spelling differences (`Mueller`) still create two rows.
 - **Overwrites:** a second document of the same type and year, such as a corrected Learning Agreement, replaces the earlier file.
 - **Version 1 marks nothing as processed:** each run processes the whole inbox again. Version 2 labels each handled email `Erasmus/Processed`. This is safe, because files are overwritten and rows updated rather than duplicated, but it's slower.
 - **PDF text is truncated** to 2000 characters per attachment.
@@ -324,7 +325,7 @@ python -c "from erasmus_inbox import tools; print(tools.list_emails()); print(to
 
 - **Other mailboxes:** version 2 supports Gmail. Outlook or Microsoft 365 would need a `graph_client.py` with the same functions, using Microsoft Graph.
 - **Instant delivery:** replace the 5-second polling with Gmail push notifications (`users.watch` with Google Cloud Pub/Sub).
-- **Scanned documents:** add OCR (for example Tesseract), or send the PDF directly to Gemini, which can read images.
+- **Scanned documents in version 1:** give the `adk web` agent the PDF itself too, as the version 2 watcher does.
 - **Better matching:** identify students by email address or student ID instead of name.
 - **Processed folder:** move each `.eml` to `inbox/done/` after filing.
 - **Review queue:** write uncertain cases to a `needs_review.xlsx` sheet instead of guessing.
@@ -348,7 +349,7 @@ Setup steps are in [GMAIL_SETUP.md](GMAIL_SETUP.md). This section explains how i
 
 **`watch_gmail.py`**
 - Loads `.env`, signs in to Gmail, and creates an ADK `InMemoryRunner`: the same agent as in `adk web`, but driven from code.
-- Every `POLL_SECONDS` (5), it asks Gmail for new messages. Each one gets a fresh agent session. The watcher reads the email itself (`read_email`) and puts its content in the prompt, marked as data rather than instructions, so the agent can file, update Excel and reply in a **single step**.
+- Every `POLL_SECONDS` (5), it asks Gmail for new messages. Each one gets a fresh agent session. The watcher reads the email itself (`read_email`) and puts its content in the prompt, marked as data rather than instructions, plus **each PDF file itself**, so Gemini can read scanned or "printed" PDFs whose text can't be extracted. The agent can then file, update Excel and reply in a **single step**.
 - An email is labeled processed **only after** the agent finishes, so errors such as a network failure or a Gemini `503` lead to an automatic retry on the next round.
 
 **`erasmus_inbox/gmail_client.py`**

@@ -22,8 +22,10 @@ When asked to process the inbox:
 
 When a message names one new email file, handle only that email. If its content is included,
 do not call read_email. Make all the calls it needs together in one step: save_attachment for
-each attachment, append_row for that student with the documents from this email (the spreadsheet
-merges them with earlier ones), and reply_to_student if it asks a question.
+each attachment, append_row for that student, and reply_to_student if it asks a question.
+In append_row always pass the host university and the mobility start and end dates (YYYY-MM-DD)
+that the documents or the email mention; use "" only for what they really do not say.
+documents_received is the document types in this email; the spreadsheet merges them with earlier ones.
 Then end with one short line per attachment.
 
 Answer student questions (in this chat or inside emails) using ONLY the FAQ below.

@@ -2,6 +2,7 @@
 import email
 import re
 import threading
+import unicodedata
 from email import policy
 from io import BytesIO
 from pathlib import Path
@@ -26,9 +27,15 @@ def _load(filename: str):
         return email.message_from_binary_file(f, policy=policy.default)
 
 
+def _plain(text: str) -> str:
+    """Removes accents (Ş -> S, é -> e, ı -> i) so one student always has one spelling."""
+    text = unicodedata.normalize("NFKD", text.replace("ı", "i").replace("İ", "I"))
+    return "".join(c for c in text if not unicodedata.combining(c))
+
+
 def _clean(text: str) -> str:
-    """Keeps only letters, digits, - and _ so names are safe in file paths."""
-    return re.sub(r"[^\w-]", "", text.strip().replace(" ", "-"))
+    """Keeps only plain letters, digits, - and _ so names are safe in file paths."""
+    return re.sub(r"[^\w-]", "", _plain(text).strip().replace(" ", "-"))
 
 
 def list_emails() -> dict:
@@ -59,6 +66,12 @@ def read_email(filename: str) -> dict:
     }
 
 
+def pdf_attachments(filename: str) -> list:
+    """Returns (file name, bytes) for each PDF in an email. Used by the watcher, not an agent tool."""
+    return [(part.get_filename(), part.get_content()) for part in _load(filename).iter_attachments()
+            if part.get_content_type() == "application/pdf"]
+
+
 def save_attachment(email_filename: str, attachment_filename: str, surname: str,
                     name: str, doc_type: str, academic_year: str) -> dict:
     """Saves one attachment as filed/<Surname_Name>/<Surname>_<Name>_<DocType>_<YYYY-YY>.pdf.
@@ -75,6 +88,9 @@ def save_attachment(email_filename: str, attachment_filename: str, surname: str,
         return {"status": "error", "message": f"doc_type must be one of {sorted(DOC_TYPES)}"}
     if not re.fullmatch(r"\d{4}-\d{2}", academic_year):
         return {"status": "error", "message": "academic_year must look like 2026-27"}
+    if int(academic_year[5:]) != (int(academic_year[:4]) + 1) % 100:
+        return {"status": "error", "message": f"{academic_year} is not one academic year. "
+                "Use the year the mobility dates fall in, e.g. 2026-27."}
     for part in _load(email_filename).iter_attachments():
         if part.get_filename() == attachment_filename:
             surname, name = _clean(surname), _clean(name)
@@ -109,7 +125,7 @@ def append_row(surname: str, name: str, host_university: str, start_date: str,
             ws = wb.active
             ws.append(HEADERS)
         for row in ws.iter_rows(min_row=2):
-            if str(row[0].value).lower() == full_name.lower():
+            if _plain(str(row[0].value)).lower() == _plain(full_name).lower():  # "Şahin" = "Sahin"
                 for cell, value in zip(row[1:4], [host_university, start_date, end_date]):
                     if value:
                         cell.value = value
